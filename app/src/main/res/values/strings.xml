@@ -1,0 +1,62 @@
+<resources xmlns:tools="http://schemas.android.com/tools" tools:locale="es">
+    <string name="app_name">InterCommerce</string>
+
+    <string name="search_hint">Buscar productos</string>
+    <string name="clear_search">Borrar búsqueda</string>
+    <string name="retry">Reintentar</string>
+    <string name="back">Volver</string>
+    <plurals name="cart_content_description">
+        <item quantity="one">Carrito, %1$d producto</item>
+        <item quantity="many">Carrito, %1$d productos</item>
+        <item quantity="other">Carrito, %1$d productos</item>
+    </plurals>
+    <string name="image_unavailable">Imagen no disponible</string>
+    <string name="image_of">%1$s, imagen %2$d</string>
+    <string name="discount_badge">-%1$d%%</string>
+    <string name="rating_value">%1$.1f</string>
+
+    <string name="showing_saved_data">Sin conexión. Mostrando productos guardados.</string>
+    <string name="showing_saved_product">Sin conexión. Mostrando la información guardada.</string>
+    <string name="update_failed_saved_data">No pudimos actualizar el catálogo. Mostrando productos guardados.</string>
+    <string name="update_failed_saved_product">No pudimos actualizar el producto. Mostrando la información guardada.</string>
+    <string name="catalog_unavailable_title">No pudimos cargar el catálogo</string>
+    <string name="search_unavailable_title">Búsqueda sin conexión</string>
+    <string name="search_unavailable_message">No hay productos guardados que coincidan con \"%1$s\". %2$s</string>
+    <string name="no_results_title">Sin resultados</string>
+    <string name="no_results_message">No encontramos productos para \"%1$s\".</string>
+
+    <string name="product_unavailable_title">Producto no disponible</string>
+    <plurals name="stock_units">
+        <item quantity="one">%1$d disponible</item>
+        <item quantity="many">%1$d disponibles</item>
+        <item quantity="other">%1$d disponibles</item>
+    </plurals>
+    <string name="out_of_stock">Producto agotado</string>
+    <string name="reviews_title">Opiniones (%1$d)</string>
+    <string name="add_to_cart">Agregar al carrito</string>
+    <string name="add_another">Agregar otro · %1$d</string>
+    <string name="added_to_cart">Producto agregado al carrito</string>
+    <string name="stock_limit_reached">Ya tienes todas las unidades disponibles</string>
+    <string name="view_cart">Ver carrito</string>
+
+    <string name="cart_title">Mi carrito</string>
+    <string name="empty_cart_title">Tu carrito está vacío</string>
+    <string name="empty_cart_message">Los productos que agregues se guardan aunque cierres la app o pierdas la conexión.</string>
+    <string name="explore_products">Explorar productos</string>
+    <string name="remove_item">Eliminar %1$s</string>
+    <string name="decrease_quantity">Disminuir cantidad</string>
+    <string name="increase_quantity">Aumentar cantidad</string>
+    <string name="unit_price">%1$s c/u</string>
+    <string name="line_savings">Ahorras %1$s</string>
+    <string name="subtotal_items">Subtotal (%1$d)</string>
+    <string name="discounts">Descuentos</string>
+    <string name="tax_label">IVA (%1$d%%)</string>
+    <string name="total">Total</string>
+
+    <string name="error_no_connection">Revisa tu conexión a internet e inténtalo de nuevo.</string>
+    <string name="error_timeout">El servidor tardó demasiado en responder.</string>
+    <string name="error_not_found">Este producto ya no existe.</string>
+    <string name="error_server">El servidor no está disponible en este momento.</string>
+    <string name="error_serialization">Recibimos una respuesta inesperada del servidor.</string>
+    <string name="error_unknown">Ocurrió un error inesperado.</string>
+</resources>
