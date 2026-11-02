@@ -34,13 +34,20 @@ abstract class CartDao {
     @Query("DELETE FROM cart_items WHERE productId = :productId")
     abstract suspend fun delete(productId: Int)
 
-    /** Inserts the item or adds one unit to it. @return false when it was already at [maxQuantity]. */
+    @Query("UPDATE cart_items SET maxQuantity = :maxQuantity WHERE productId = :productId")
+    abstract suspend fun updateMaxQuantity(productId: Int, maxQuantity: Int)
+
+    /**
+     * Inserts the item or adds one unit to it. @return false when it was already at [maxQuantity].
+     * Re-adding refreshes the stored limit, so the cart stepper and the detail screen enforce the same stock.
+     */
     @Transaction
     open suspend fun addOrIncrement(item: CartItemEntity, maxQuantity: Int): Boolean {
         if (!contains(item.productId)) {
             insert(item)
             return true
         }
+        updateMaxQuantity(item.productId, maxQuantity)
         return changeQuantity(item.productId, delta = 1, min = 1, max = maxQuantity) > 0
     }
 }

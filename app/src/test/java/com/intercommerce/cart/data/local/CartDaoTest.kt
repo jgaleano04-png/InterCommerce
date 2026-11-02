@@ -44,6 +44,18 @@ class CartDaoTest {
     }
 
     @Test
+    fun `re-adding refreshes the stored stock limit`() = runTest {
+        dao.addOrIncrement(product(id = 1, stock = 5).toCartEntity(addedAt = 0), maxQuantity = 5)
+
+        // Stock dropped to 2 in the API: the add succeeds (1 → 2) and the cart now caps at 2 too.
+        assertTrue(dao.addOrIncrement(product(id = 1, stock = 2).toCartEntity(addedAt = 0), maxQuantity = 2))
+
+        val item = dao.observeAll().first().single()
+        assertEquals(2, item.quantity)
+        assertEquals(2, item.maxQuantity)
+    }
+
+    @Test
     fun `changeQuantity refuses to leave bounds`() = runTest {
         dao.insert(product(id = 1).toCartEntity(addedAt = 0))
 
