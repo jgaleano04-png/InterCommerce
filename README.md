@@ -4,6 +4,8 @@ MVP de comercio electrónico **nativo para Android**, escrito en Kotlin con Jetp
 
 Consume exclusivamente la API pública de [DummyJSON](https://dummyjson.com/docs/products).
 
+**Objetivo de la prueba:** demostrar un MVP de e-commerce Android con Clean Architecture, persistencia local robusta (Room), resiliencia ante conectividad inestable, lógica de negocio aislada en Domain y pruebas unitarias. El evaluador instala el APK en un teléfono físico y corta la red en caliente para evaluar el almacenamiento local.
+
 ---
 
 ## Contenido
@@ -21,6 +23,8 @@ Consume exclusivamente la API pública de [DummyJSON](https://dummyjson.com/docs
 11. [Ejecución](#11-ejecución)
 12. [Pruebas](#12-pruebas)
 13. [Supuestos y limitaciones](#13-supuestos-técnicos-y-limitaciones-conocidas)
+14. [Navegación](#14-navegación)
+15. [Estado de cumplimiento](#15-estado-de-cumplimiento)
 
 ---
 
@@ -61,9 +65,27 @@ La UI está en español, con modo claro y oscuro, y pasa a dos paneles en pantal
 
 ## 3. Arquitectura y organización de paquetes
 
+```mermaid
+flowchart LR
+    subgraph Presentation
+        S[Screens Compose] --> VM[ViewModels]
+    end
+    subgraph Domain["Domain (Kotlin puro)"]
+        UC[Casos de uso] --> RI[[ProductRepository / CartRepository / NetworkMonitor]]
+        M[Product, CartItem, Cart, Money, AppError]
+    end
+    subgraph Data
+        RPI[ProductRepositoryImpl / CartRepositoryImpl] --> DAO[DAOs Room]
+        RPI --> API[ProductApi Retrofit]
+        NM[AndroidNetworkMonitor]
+    end
+    VM --> UC
+    RPI -. implementa .-> RI
+    NM -. implementa .-> RI
+    DI[core/di/BindingsModule] -. "@Binds" .-> RPI
 ```
-Presentation (Compose + ViewModel)  ──usa──▶  Domain (Kotlin puro)  ◀──implementa──  Data (Room, Retrofit, Coil)
-```
+
+Las flechas de código apuntan siempre **hacia Domain**: Presentation lo usa y Data lo implementa. Domain no conoce a ninguno de los dos.
 
 - **Domain** no depende de ningún framework. Contiene entidades inmutables, interfaces de repositorio, casos de uso y reglas de precio. **`DomainPurityTest` hace fallar el build** si algún archivo de un paquete `domain` importa algo distinto de Kotlin, coroutines, `java.math`, `javax.inject` o el tipo `PagingData`. `PagingData` viene de `paging-common`, que es Kotlin puro.
 - **Presentation** solo conoce casos de uso. Ningún ViewModel importa DAOs, Retrofit ni Room; se verificó con búsqueda en el código y lo refuerzan las interfaces.
@@ -133,6 +155,31 @@ Se descartaron otras opciones:
                                                   └── @Transaction savePage() ──────┘
 ```
 
+El mismo flujo, como secuencia en el caso de una apertura sin conexión:
+
+```mermaid
+sequenceDiagram
+    participant UI as CatalogScreen
+    participant P as Pager
+    participant DB as Room
+    participant RM as RemoteMediator
+    participant API as DummyJSON
+    UI->>P: collectAsLazyPagingItems()
+    P->>DB: PagingSource.load()
+    DB-->>UI: productos guardados (inmediato)
+    P->>RM: load(REFRESH)
+    RM->>API: GET /products?limit=20&skip=0
+    API--xRM: IOException (sin red)
+    RM-->>P: MediatorResult.Error(NoConnection)
+    P-->>UI: LoadState.Error → banner "Sin conexión"
+    Note over UI: la red vuelve → NetworkMonitor emite true
+    UI->>P: retry()
+    RM->>API: GET /products?limit=20&skip=0
+    API-->>RM: 200 OK
+    RM->>DB: @Transaction savePage()
+    DB-->>UI: invalidación → datos actualizados
+```
+
 1. Al abrir el catálogo, Room emite **de inmediato** lo que ya está guardado.
 2. Al mismo tiempo, `RemoteMediator` pide la primera página (`InitializeAction.LAUNCH_INITIAL_REFRESH`).
 3. Si la respuesta llega bien, `savePage()` la escribe en una transacción y Room notifica a la UI.
@@ -181,14 +228,29 @@ Todos los fallos de infraestructura se traducen **en un solo lugar** (`core/data
 
 ## 7. Persistencia del carrito
 
-- **Dónde se guarda:** en la tabla `cart_items` de Room (`productId` es la llave primaria). Cada fila tiene la cantidad, una copia del título, la imagen, el precio en centavos y el descuento, el stock al momento de agregar (`maxQuantity`) y la fecha en que se agregó.
+- **Dónde se guarda:** en la tabla `cart_items` de Room (`productId` es la llave primaria). Cada fila tiene la cantidad, una copia del título, la imagen, el precio en centavos y el descuento, el tope de stock (`maxQuantity`, actualizado cada vez que el producto se vuelve a agregar) y la fecha en que se agregó.
 - **Durabilidad:** cada operación es una escritura de SQLite que se confirma antes de terminar. No hay copia en memoria que se pueda perder: **el ViewModel no guarda el carrito**, lo observa (`ObserveCartUseCase` → `StateFlow`). Lo que se muestra es siempre lo persistido.
 - **Concurrencia:**
   - `addOrIncrement` es una `@Transaction`.
   - `changeQuantity` es relativo y acotado en una sola sentencia (`quantity + delta BETWEEN min AND max`); los límites los decide Domain (1 y el stock).
   - Dos toques rápidos no pueden leer el mismo valor viejo y perder un incremento.
 - **Sin migración destructiva:** `fallbackToDestructiveMigration` no está activado, porque borraría el carrito. El esquema se exporta para escribir migraciones explícitas.
-- **Verificado en el emulador:** sobrevive al cierre normal, a `am force-stop`, a `am kill` en segundo plano (memoria baja; la app vuelve al detalle con su argumento) y a `adb reboot`, abriendo la app sin red.
+- **Verificado en el emulador durante el desarrollo:** sobrevive al cierre normal, a `am force-stop`, a `am kill` en segundo plano (memoria baja; la app vuelve al detalle con su argumento) y a `adb reboot`, abriendo la app sin red. Para repetirlo en un dispositivo físico, ver la [prueba de corte de red en caliente](#prueba-sugerida-de-corte-de-red-en-caliente).
+
+```mermaid
+flowchart TB
+    subgraph Catálogo["Caché reemplazable (la escribe la red)"]
+        P[(products)]
+        E[(catalog_entries)]
+        K[(catalog_remote_keys)]
+    end
+    subgraph Carrito["Datos del usuario (solo los escribe el usuario)"]
+        C[(cart_items<br/>copia del producto + cantidad)]
+    end
+    NET[RemoteMediator / refreshProduct] -->|"@Transaction"| P & E & K
+    U[Usuario] -->|AddToCart / ChangeQuantity / Remove| C
+    P -. "copia al agregar (sin llave foránea)" .-> C
+```
 
 ---
 
@@ -355,6 +417,14 @@ adb install -r dist/InterCommerce-1.0.0-debug.apk
 4. Buscar algo ya guardado (por ejemplo `red`): se resuelve contra la caché local.
 5. Modificar el carrito. Luego **forzar la detención** de la app o **reiniciar** el teléfono y volver a abrirla: el carrito sigue intacto.
 6. Desactivar el modo avión. El aviso desaparece, el listado se actualiza solo y el scroll infinito continúa.
+7. Volver al carrito: conserva las mismas líneas, cantidades y precios que antes de la actualización del catálogo.
+
+Otras comprobaciones útiles:
+
+- **Vibración al agregar al carrito:** usa la respuesta táctil del sistema, así que debe estar activada en *Ajustes → Sonido y vibración*.
+- **Cambio de Wi-Fi a datos móviles:** no debe aparecer el aviso "Sin conexión".
+- **Primera apertura sin conexión:** como no hay nada guardado, se muestra un error con **Reintentar**; al volver la red, el catálogo carga solo.
+- **Rotación:** en horizontal, el detalle y el carrito pasan a dos paneles sin perder el estado.
 
 ---
 
@@ -384,7 +454,7 @@ Reportes de estabilidad del compilador de Compose:
 ./gradlew assembleRelease -PcomposeReports
 ```
 
-**54 tests, todos en la JVM.** Room y Android se emulan con Robolectric, así que no hace falta un dispositivo.
+**55 tests, todos en la JVM.** Room y Android se emulan con Robolectric, así que no hace falta un dispositivo.
 
 | Capa | Suite | Qué prueba |
 |---|---|---|
@@ -412,7 +482,7 @@ Reportes de estabilidad del compilador de Compose:
 - **Precios:** los de DummyJSON se interpretan en **USD**. Se aplica **IVA del 19 %** (tarifa general en Colombia) sobre el subtotal con descuento.
 - **Descuento:** el `discountPercentage` de cada producto se toma como descuento vigente.
 - **Precio congelado:** el carrito guarda el precio de cuando se agregó el producto y no lo recalcula si el catálogo cambia; sería tarea del checkout (ver Pregunta 2).
-- **Tope de cantidad:** es el stock en el momento de agregar el producto.
+- **Tope de cantidad:** es el stock conocido la última vez que el usuario agregó el producto.
 - **`minimumOrderQuantity`:** se ignora; el carrito arranca en 1 unidad. En DummyJSON, por ejemplo, el producto 1 exige 48.
 - **Sin checkout ni login:** el enunciado no los pide.
 
@@ -426,3 +496,45 @@ Reportes de estabilidad del compilador de Compose:
 - **Sin tests instrumentados de Compose UI:** el flujo de UI se verificó manualmente en el emulador (corte de red, muerte del proceso, rotación, modo oscuro, reinicio).
 - **Seguridad pendiente:** no hay cifrado, pinning ni R8 (ver Pregunta 3).
 - **Toolchain:** versiones fijadas a finales de 2025; las advertencias de lint sobre versiones nuevas están desactivadas a propósito en `app/build.gradle.kts`.
+- **Tope de stock del carrito:** se actualiza con el stock vigente cada vez que el producto se vuelve a agregar, no en cada refresh del catálogo (el carrito nunca lo escribe la red). Si el stock baja por debajo de la cantidad ya agregada, la cantidad no se recorta; solo se deshabilita el botón **+**.
+- **Un solo módulo Gradle:** la separación de capas la garantiza `DomainPurityTest`, no el compilador. La regla "Presentation no importa Data" se verificó con búsqueda en el código, pero no está automatizada.
+- **`PagingData` en el contrato de Domain:** proviene de `paging-common` (Kotlin puro), pero es un tipo pensado para la UI. Se aceptó para no reimplementar la paginación; ver la Pregunta 1.
+
+---
+
+## 14. Navegación
+
+Navigation Compose **type-safe**: cada destino es un tipo `@Serializable` en `core/presentation/navigation/AppNavHost.kt`.
+
+| Ruta | Pantalla | Argumentos |
+|---|---|---|
+| `CatalogRoute` (inicio) | `CatalogScreen` | — |
+| `ProductDetailRoute(productId: Int)` | `ProductDetailScreen` | `productId`, leído en el ViewModel con `savedStateHandle.toRoute<ProductDetailRoute>()` |
+| `CartRoute` | `CartScreen` | — |
+
+```mermaid
+flowchart LR
+    Catalog[CatalogRoute] -->|tocar producto| Detail["ProductDetailRoute(id)"]
+    Catalog -->|ícono carrito| Cart[CartRoute]
+    Detail -->|"ícono carrito / 'Ver carrito'"| Cart
+    Cart -->|tocar línea| Detail
+```
+
+- Hacia el carrito se navega con `launchSingleTop = true`, para no apilar varias copias.
+- El back stack y los argumentos se restauran tras la muerte del proceso.
+
+---
+
+## 15. Estado de cumplimiento
+
+| Requerimiento del enunciado | Dónde se resuelve |
+|---|---|
+| Catálogo con grid, skeletons, scroll infinito y modo offline | `catalog/` — `LazyVerticalGrid`, `Modifier.shimmer()`, Paging 3 + `CatalogRemoteMediator`, Room ([§5](#5-estrategia-offline-first)) |
+| Detalle con navegación type-safe, Coil y vibración háptica | `productdetail/`, `core/presentation/navigation/AppNavHost.kt`, `InterCommerceApp` (cachés de Coil) |
+| Carrito persistente con lógica de negocio en Domain | `cart/` — Room, `CalculateCartTotalsUseCase`, `Money` ([§7](#7-persistencia-del-carrito) y [§8](#8-casos-de-uso)) |
+| Clean Architecture y DI con Hilt | Paquetes `domain`/`data`/`presentation` por funcionalidad, `BindingsModule`, `DomainPurityTest` ([§3](#3-arquitectura-y-organización-de-paquetes)) |
+| Retrofit con interceptores y manejo centralizado de errores | `NetworkModule`, `ApiErrors.kt` ([§6](#6-manejo-de-errores-y-recuperación)) |
+| Pruebas con JUnit y MockK | 55 tests; `./gradlew test` pasa en debug y release ([§12](#12-pruebas)) |
+| Performance | Composables estables (`compose_stability.conf`, reportes con `-PcomposeReports`), keys estables en listas, I/O en `Dispatchers.IO` |
+| Preguntas de profundidad técnica | [§9](#9-preguntas-de-profundidad-técnica) |
+| APK debug firmado | [§10](#10-instalación) |
