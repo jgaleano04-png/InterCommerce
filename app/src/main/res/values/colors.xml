@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand navy, same as the theme's primary. -->
+    <color name="ic_launcher_background">#14325C</color>
+</resources>
